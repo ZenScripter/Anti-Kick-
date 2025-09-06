@@ -1,185 +1,129 @@
---[[
-    ZenDreamProtect v1.1 (No GUI Edition)
-    Features: Anti-Kick | Anti-Logger | Anti-Remote | Anti-Username Grabber | Anti-IP Logger | Custom GUI Destroyer
-    For exploit use only. Edit CONFIG below to toggle features.
---]]
+-- Zen Anti Hub v1.2 (Concept Build)
+-- By Zen & Jack
+-- Focus: Logger++, Username, File Steal, Suspicious Remote
 
+-- // Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- ===== SETTINGS =====
+-- // Config
 local CONFIG = {
-    ANTI_KICK = true,
-    ANTI_LOGGER = true,
-    ANTI_REMOTE = true,
-    ANTI_USERNAME_GRABBER = true,
-    ANTI_IP_LOGGER = true,
-    DESTROY_CUSTOM_GUI = true,
-    CUSTOM_GUI_NAME = "AnnoyingPopup",
-    LOG_GUI_DESTROY = true,
+    ANTI_LOGGER_PLUS   = true,
+    ANTI_USERNAME      = true,
+    ANTI_FILE_STEAL    = true,
+    ANTI_SUSPICIOUS    = true,
+    DEBUG_MODE         = true,
 }
 
--- ====== NOTIFICATION ======
-local function notify(title, text)
-    print("[ZenDreamProtect] " .. title .. ": " .. text)
+-- // Utils
+local function log(msg)
+    if CONFIG.DEBUG_MODE then warn("[Zen Anti Hub] "..msg) end
 end
 
--- ====== ANTI-KICK ======
-local function enableAntiKick()
-    if not CONFIG.ANTI_KICK then return end
-    if LocalPlayer and rawget(LocalPlayer, "Kick") ~= nil then
-        LocalPlayer.Kick = function()
-            notify("Anti-Kick", "Blocked direct Kick()")
-            return
+-- ========================
+--   Protections v1.2
+-- ========================
+
+-- 🔒 Anti Logger++
+local function protectLoggerPlus()
+    log("Anti Logger++ loaded.")
+
+    -- Hook request functions
+    local blockFuncs = {"game:HttpGet", "game.HttpGet", "syn.request", "http_request", "request"}
+    for _, fn in pairs(blockFuncs) do
+        local f = getfenv()[fn] or getrenv()[fn]
+        if f and type(f) == "function" then
+            hookfunction(f, function(...)
+                log("🚫 Blocked external HTTP request: "..fn)
+                return nil
+            end)
         end
     end
 
-    local mtSuccess, mt = pcall(getrawmetatable, game)
-    if mtSuccess and mt then
-        local oldNamecall = mt.__namecall
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if (method == "Kick" or method == "kick") and self == LocalPlayer then
-                notify("Anti-Kick", "Blocked __namecall Kick")
+    -- Block GC based loggers again
+    for _,v in pairs(getgc(true)) do
+        if typeof(v) == "function" then
+            local info = debug.getinfo(v)
+            local src = tostring(info.short_src):lower()
+            if src:find("logger") or src:find("grab") then
+                hookfunction(v, function(...)
+                    log("🚫 Suspicious logger blocked (GC).")
+                    return nil
+                end)
+            end
+        end
+    end
+end
+
+-- 🔒 Anti Username Grabber
+local function protectUsername()
+    log("Anti Username Grabber loaded.")
+
+    -- Fake name when accessed by suspicious functions
+    local fakeName = "ZenUser"..tostring(math.random(1000,9999))
+
+    hookmetamethod(game, "__index", function(self, key)
+        if self == LocalPlayer and key == "Name" then
+            local trace = debug.traceback()
+            if trace:lower():find("logger") or trace:lower():find("grab") then
+                log("🚫 Username grab attempt blocked. Returned fake username.")
+                return fakeName
+            end
+        end
+        return getrawmetatable(game).__index(self, key)
+    end)
+end
+
+-- 🔒 Anti File Steal
+local function protectFileSteal()
+    log("Anti File Steal loaded.")
+
+    local funcs = {"readfile", "writefile", "appendfile", "delfile", "listfiles", "loadfile"}
+    for _, fn in pairs(funcs) do
+        local f = getfenv()[fn] or getrenv()[fn]
+        if f and type(f) == "function" then
+            hookfunction(f, function(...)
+                log("🚫 File access attempt blocked: "..fn)
+                return nil
+            end)
+        end
+    end
+end
+
+-- 🔒 Anti Suspicious Remote
+local function protectSuspiciousRemote()
+    log("Anti Suspicious Remote loaded.")
+
+    -- Hook remotes globally
+    local mt = getrawmetatable(game)
+    setreadonly(mt, false)
+    local old = mt.__namecall
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if (method == "FireServer" or method == "InvokeServer") then
+            local lname = tostring(self.Name):lower()
+            if lname:find("logger") or lname:find("grab") or lname:find("ban") or lname:find("moderator") then
+                log("🚫 Blocked suspicious remote: "..self.Name)
                 return nil
             end
-            return oldNamecall(self, ...)
-        end)
-        setreadonly(mt, true)
-    end
-end
-
--- ====== ANTI-LOGGER (Includes IP/Username logger protection) ======
-local function enableAntiLogger()
-    if not CONFIG.ANTI_LOGGER and not CONFIG.ANTI_IP_LOGGER and not CONFIG.ANTI_USERNAME_GRABBER then return end
-    local keywords = {
-        "ip", "http", "request", "webhook", "discord", "log", "logger",
-        "username", "name", "userid", "save", "clipboard", "cookie",
-        "hwid", "hardware", "writefile", "httppost", "token", "auth", "password", "send", "exploit", "getfenv"
-    }
-    local function isSuspicious(s)
-        s = s:lower()
-        for _, k in ipairs(keywords) do
-            if s:find(k) then return true end
         end
-        return false
-    end
-
-    local gc = (getgc and getgc(true)) or {}
-    for _, item in ipairs(gc) do
-        if typeof(item) == "function" then
-            local ok, info = pcall(function() return debug.getinfo(item) end)
-            if ok and info then
-                local combined = (tostring(info.name or "").."\n"..tostring(info.short_src or ""))
-                if isSuspicious(combined) then
-                    pcall(function()
-                        hookfunction(item, function(...)
-                            notify("Anti-Logger", "Blocked suspicious logger/IP/username function: "..(info.name or "unknown"))
-                            return nil
-                        end)
-                    end)
-                end
-            end
-        end
-    end
-end
-
--- ====== ANTI-USERNAME GRABBER ======
-local function enableAntiUsernameGrabber()
-    if not CONFIG.ANTI_USERNAME_GRABBER then return end
-    pcall(function()
-        local oldName = LocalPlayer.Name
-        local mt = getrawmetatable(LocalPlayer)
-        if mt and mt.__index then
-            setreadonly(mt, false)
-            local oldIndex = mt.__index
-            mt.__index = newcclosure(function(self, key)
-                if self == LocalPlayer and (key == "Name" or key == "Username") then
-                    notify("Anti-Username Grabber", "Blocked attempt to read username.")
-                    return "ProtectedUser"
-                end
-                return oldIndex(self, key)
-            end)
-            setreadonly(mt, true)
-        end
+        return old(self, ...)
     end)
+    setreadonly(mt, true)
 end
 
--- ====== ANTI-REMOTE ======
-local function enableAntiRemote()
-    if not CONFIG.ANTI_REMOTE then return end
-
-    local remoteTypes = {"RemoteEvent", "RemoteFunction"}
-    local function hookRemote(obj)
-        if obj:IsA("RemoteEvent") and obj.FireServer then
-            pcall(function()
-                local oldFS = obj.FireServer
-                obj.FireServer = function(self, ...)
-                    notify("Anti-Remote", "Blocked FireServer on " .. obj.Name)
-                    return nil
-                end
-            end)
-        end
-        if obj:IsA("RemoteFunction") and obj.InvokeServer then
-            pcall(function()
-                local oldIS = obj.InvokeServer
-                obj.InvokeServer = function(self, ...)
-                    notify("Anti-Remote", "Blocked InvokeServer on " .. obj.Name)
-                    return nil
-                end
-            end)
-        end
-    end
-    for _, obj in ipairs(game:GetDescendants()) do
-        if table.find(remoteTypes, obj.ClassName) then
-            hookRemote(obj)
-        end
-    end
-    game.DescendantAdded:Connect(function(obj)
-        if table.find(remoteTypes, obj.ClassName) then
-            hookRemote(obj)
-        end
-    end)
-end
-
--- ====== CUSTOM GUI DESTROYER ======
-local function enableCustomGUIDestroyer()
-    if not CONFIG.DESTROY_CUSTOM_GUI then return end
-    local function checkGUIs()
-        for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
-            if gui.Name == CONFIG.CUSTOM_GUI_NAME then
-                gui:Destroy()
-                notify("Custom GUI Destroyed", CONFIG.CUSTOM_GUI_NAME .. " was destroyed.")
-                if CONFIG.LOG_GUI_DESTROY then
-                    print("[ZenDreamProtect] Destroyed GUI: " .. gui.Name)
-                end
-            end
-        end
-    end
-    checkGUIs()
-    LocalPlayer.PlayerGui.ChildAdded:Connect(function(gui)
-        if gui.Name == CONFIG.CUSTOM_GUI_NAME then
-            gui:Destroy()
-            notify("Custom GUI Destroyed", CONFIG.CUSTOM_GUI_NAME .. " was destroyed.")
-            if CONFIG.LOG_GUI_DESTROY then
-                print("[ZenDreamProtect] Destroyed GUI: " .. gui.Name)
-            end
-        end
-    end)
-end
-
--- ====== INIT ======
+-- ========================
+--   Init
+-- ========================
 local function init()
-    notify("ZenDreamProtect", "Initializing...")
+    log("Zen Anti Hub v1.2 initializing...")
 
-    enableAntiKick()
-    enableAntiLogger()
-    enableAntiUsernameGrabber()
-    enableAntiRemote()
-    enableCustomGUIDestroyer()
+    if CONFIG.ANTI_LOGGER_PLUS then protectLoggerPlus() end
+    if CONFIG.ANTI_USERNAME then protectUsername() end
+    if CONFIG.ANTI_FILE_STEAL then protectFileSteal() end
+    if CONFIG.ANTI_SUSPICIOUS then protectSuspiciousRemote() end
 
-    notify("ZenDreamProtect", "All protections active! (No GUI Edition)")
+    log("Zen Anti Hub v1.2 Active ✅")
 end
 
 init()
