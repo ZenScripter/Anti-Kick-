@@ -1,5 +1,5 @@
 --[[
-    All-in-One Exploit Protection v1.0 by hellocun ✨ (Enhanced by Copilot)
+    All-in-One Exploit Protection v1.0 by Zen and hellocun ✨ (Enhanced by Copilot)
     Features: Anti-Kick | Anti-Teleport | Anti-Crash (heuristic) | Anti-Logger | Auto-Rejoin
     NOTES: Tweak toggles/config below. Adapt for your exploit API/environment as needed!
 --]]
